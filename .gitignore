@@ -1,0 +1,18 @@
+# Virtual Environment
+venv/
+
+# Environment Variables
+.env
+
+# Database
+*.db
+
+# Temporary Storage (keep directory with .gitkeep)
+temp_storage/*
+!temp_storage/.gitkeep
+
+# Python Cache
+__pycache__/
+
+# IDE
+.vscode/
