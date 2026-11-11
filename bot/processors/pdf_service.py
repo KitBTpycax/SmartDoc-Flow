@@ -5,6 +5,7 @@ from PIL import Image
 from config import TESSERACT_CMD
 
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+MAX_PAGES = 30
 
 def extract_text_from_pdf(pdf_path: str) -> str:
     """
@@ -13,6 +14,8 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     2. Якщо сторінка не містить тексту (або менше 20 символів) —
        ТІЛЬКИ ця сторінка рендериться з DPI=300 та передається в Tesseract OCR.
     3. Результати текстових і відсканованих сторінок об'єднуються зі збереженням структури сторінок.
+    4. Якщо документ містить більше MAX_PAGES (30) сторінок, обробляються перші 30
+       і на початку додається сповіщення про обмеження.
     """
     result_pages = []
 
@@ -24,7 +27,13 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         if total_pages == 0:
             raise RuntimeError("PDF-документ порожній і не містить сторінок.")
 
-        for idx, page in enumerate(doc, start=1):
+        limit_notice = ""
+        pages_to_process = min(total_pages, MAX_PAGES)
+        if total_pages > MAX_PAGES:
+            limit_notice = f"⚠️ Обробку обмежено першими {MAX_PAGES} сторінками.\n\n"
+
+        for idx in range(1, pages_to_process + 1):
+            page = doc[idx - 1]
             page_text = (page.get_text() or "").strip()
 
             # Якщо сторінка містить достатньо тексту — використовуємо його без виклику OCR
@@ -45,4 +54,4 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     if not result_pages:
         raise RuntimeError("Не вдалося витягти або розпізнати текст із PDF-документа.")
 
-    return "\n\n".join(result_pages)
+    return limit_notice + "\n\n".join(result_pages)

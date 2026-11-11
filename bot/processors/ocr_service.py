@@ -18,9 +18,3 @@ def perform_ocr(image_path: str, lang: str = "ukr+eng") -> str:
     if not text_clean:
         raise RuntimeError("Текст на зображенні не знайдено.")
     return f"--- Сторінка 1 ---\n{text_clean}"
-
-def images_to_pdf(image_paths: list[str], output_pdf_path: str) -> str:
-    images = [Image.open(p).convert("RGB") for p in image_paths]
-    if images:
-        images[0].save(output_pdf_path, save_all=True, append_images=images[1:], resolution=300.0)
-    return output_pdf_path

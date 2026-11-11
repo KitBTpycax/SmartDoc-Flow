@@ -24,7 +24,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def cleanup_temp_storage(temp_dir: str = TEMP_DIR, max_size_bytes: int = 500 * 1024 * 1024):
     """
-    Перевіряє загальний об'єм папки temp_storage при старті бота.
+    Перевіряє загальний об'єм папки temp_storage.
     Якщо загальний об'єм перевищує 500 МБ, видаляє найстаріші файли (зберігаючи .gitkeep).
     """
     if not os.path.exists(temp_dir):
@@ -75,18 +75,32 @@ def cleanup_temp_storage(temp_dir: str = TEMP_DIR, max_size_bytes: int = 500 * 1
             except OSError:
                 pass
 
+async def periodic_cleanup():
+    """
+    Фоновий цикл очищення: щогодини викликає cleanup_old_records (видалення записів,
+    старіших за 24 години) та cleanup_temp_storage (контроль об'єму до 500 МБ).
+    """
+    while True:
+        try:
+            cleanup_temp_storage()
+            async with async_session() as session:
+                deleted_count = await cleanup_old_records(session, hours=24)
+                if deleted_count > 0:
+                    logging.info(f"Періодичне очищення: видалено {deleted_count} застарілих записів з БД.")
+        except Exception as e:
+            logging.warning(f"Помилка під час періодичного очищення: {e}")
+
+        await asyncio.sleep(3600)
+
 async def main():
-    cleanup_temp_storage()
     await init_db()
-    
-    # Автоматичне очищення записів БД, старіших за 24 години
-    try:
-        async with async_session() as session:
-            deleted_count = await cleanup_old_records(session, hours=24)
-            if deleted_count > 0:
-                logging.info(f"Очищено {deleted_count} застарілих записів з бази даних.")
-    except Exception as e:
-        logging.warning(f"Не вдалося виконати очищення старих записів БД: {e}")
+
+    # Запуск фонової задачі періодичного очищення сховища та БД
+    asyncio.create_task(periodic_cleanup())
+
+    # Запуск 4 паралельних воркерів черги задач
+    for _ in range(4):
+        asyncio.create_task(worker())
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
@@ -94,9 +108,6 @@ async def main():
     dp.include_router(start.router)
     dp.include_router(upload.router)
     dp.include_router(actions.router)
-
-    # Фоновий воркер черги завдань
-    asyncio.create_task(worker())
 
     await dp.start_polling(bot)
 

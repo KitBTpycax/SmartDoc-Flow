@@ -81,7 +81,7 @@ async def handle_file_upload(message: Message, bot: Bot):
         await msg.edit_text(f"❌ Помилка під час обробки файлу: {escape(str(e))}", parse_mode="HTML")
         return
 
-    # 5. Запис у базу даних (виключно при успішній обробці)
+    # 5. Запис у базу даних (обгорнуто в try...except для уникнення зависання статусу ⏳)
     try:
         async with async_session() as session:
             # Реєстрація або оновлення користувача
@@ -111,8 +111,10 @@ async def handle_file_upload(message: Message, bot: Bot):
                 reply_markup=get_action_keyboard(db_file.id),
                 parse_mode="HTML"
             )
+    except Exception as e:
+        await msg.edit_text(f"❌ Помилка збереження даних: {escape(str(e))}", parse_mode="HTML")
     finally:
-        # Одразу видаляємо оригінальний завантажений файл з диска, адже текст уже збережено в БД
+        # Одразу видаляємо оригінальний завантажений файл з диска, адже текст збережено в БД
         if os.path.exists(local_path):
             try:
                 os.remove(local_path)

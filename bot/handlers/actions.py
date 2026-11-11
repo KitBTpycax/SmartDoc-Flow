@@ -78,7 +78,7 @@ async def handle_actions(callback: CallbackQuery, state: FSMContext):
     async with async_session() as session:
         db_file = await session.get(UploadedFile, file_id)
         if not db_file or db_file.user_id != user_id:
-            await callback.message.answer("❌ Файл не знайдено або доступ заборонено.")
+            await callback.message.answer("❌ Файл застарів або був автоматично видалений (термін зберігання 24 години).")
             return
         
         extracted_text = db_file.extracted_text or ""
@@ -148,7 +148,7 @@ async def process_search_query(message: Message, state: FSMContext):
         async with async_session() as session:
             db_file = await session.get(UploadedFile, file_id)
             if not db_file or db_file.user_id != user_id:
-                await message.answer("❌ Файл не знайдено або доступ заборонено.")
+                await message.answer("❌ Файл застарів або був автоматично видалений (термін зберігання 24 години).")
                 return
             extracted_text = db_file.extracted_text or ""
 
