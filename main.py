@@ -11,7 +11,8 @@ if sys.platform == "win32":
 
 from aiogram import Bot, Dispatcher
 from config import BOT_TOKEN, TEMP_DIR
-from bot.database.engine import init_db
+from bot.database.engine import init_db, async_session
+from bot.database.models import cleanup_old_records
 from bot.workers.task_queue import worker
 from bot.handlers import start, upload, actions
 
@@ -78,6 +79,15 @@ async def main():
     cleanup_temp_storage()
     await init_db()
     
+    # Автоматичне очищення записів БД, старіших за 24 години
+    try:
+        async with async_session() as session:
+            deleted_count = await cleanup_old_records(session, hours=24)
+            if deleted_count > 0:
+                logging.info(f"Очищено {deleted_count} застарілих записів з бази даних.")
+    except Exception as e:
+        logging.warning(f"Не вдалося виконати очищення старих записів БД: {e}")
+
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 

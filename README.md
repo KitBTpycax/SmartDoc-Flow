@@ -30,7 +30,7 @@
 * **Database & ORM:** SQLAlchemy (Async Engine) + SQLite (`aiosqlite`)
 * **AI Engine:** Google Generative AI SDK (`google-genai` / Gemini 3.5 Flash Lite)
 * **OCR & Rendering:** `pytesseract` + Tesseract OCR Engine, `pymupdf` (Fitz), `Pillow`
-* **Document Processing:** `python-docx`, `pypdf`
+* **Document Processing:** `python-docx`
 * **Concurrency:** `ThreadPoolExecutor` offloading for non-blocking asynchronous operations
 
 ---

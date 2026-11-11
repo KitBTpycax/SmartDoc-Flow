@@ -26,17 +26,20 @@ async def send_formatted_result(
     Надсилає результат у чат. Якщо довжина перевищує 3900 символів —
     надсилає коротке прев'ю в чат та прикріплює повний текст файлом result.txt,
     після чого видаляє файл з диска у блоці finally.
+    Обрізання тексту виконується ДО створення HTML розмітки.
     """
-    formatted_msg = f"{title}\n\n{escape(full_text)}"
+    escaped_full = escape(full_text)
+    formatted_msg = f"{title}\n\n{escaped_full}"
     if len(formatted_msg) <= 3900:
         await msg.edit_text(formatted_msg, parse_mode="HTML")
         return
 
-    # Довжина перевищує 3900 символів: надсилаємо прев'ю та файл result.txt
-    preview_slice = full_text[:1000]
+    # Довжина перевищує 3900 символів: обрізаємо ДО форматування в HTML
+    preview_slice = full_text[:1000] + "..."
+    preview_escaped = escape(preview_slice)
     preview_text = (
         f"{title}\n\n"
-        f"{escape(preview_slice)}...\n\n"
+        f"{preview_escaped}\n\n"
         f"<i>📎 Повний текст перевищує 3900 символів та прикріплений нижче у файлі result.txt</i>"
     )
     await msg.edit_text(preview_text, parse_mode="HTML")
@@ -135,6 +138,7 @@ async def handle_actions(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SearchState.waiting_for_query, F.text)
 async def process_search_query(message: Message, state: FSMContext):
+    msg = None
     try:
         query = message.text.strip()
         data = await state.get_data()
@@ -144,7 +148,7 @@ async def process_search_query(message: Message, state: FSMContext):
         async with async_session() as session:
             db_file = await session.get(UploadedFile, file_id)
             if not db_file or db_file.user_id != user_id:
-                await message.answer("❌ Файл не знайдено.")
+                await message.answer("❌ Файл не знайдено або доступ заборонено.")
                 return
             extracted_text = db_file.extracted_text or ""
 
@@ -154,9 +158,24 @@ async def process_search_query(message: Message, state: FSMContext):
         if not results:
             await msg.edit_text(f"❌ Запиту <code>{escape(query)}</code> не знайдено.", parse_mode="HTML")
         else:
-            output = f"🎯 <b>Результати пошуку для:</b> <code>{escape(query)}</code>\n\n" + "\n\n".join(results[:5])
-            if len(output) > 3900:
-                output = output[:3800] + "..."
+            # Обрізаємо сирий текст знайдених фрагментів ДО форматування в HTML
+            raw_body = "\n\n".join(results[:5])
+            if len(raw_body) > 3500:
+                raw_body = raw_body[:3500] + "\n... [результати скорочено]"
+
+            # Обов'язково екрануємо знайдені фрагменти тексту
+            escaped_body = escape(raw_body)
+            header = f"🎯 <b>Результати пошуку для:</b> <code>{escape(query)}</code>\n\n"
+            output = header + escaped_body
             await msg.edit_text(output, parse_mode="HTML")
+    except Exception as e:
+        error_msg = f"❌ Помилка під час пошуку: {escape(str(e))}"
+        if msg:
+            try:
+                await msg.edit_text(error_msg, parse_mode="HTML")
+            except Exception:
+                await message.answer(error_msg, parse_mode="HTML")
+        else:
+            await message.answer(error_msg, parse_mode="HTML")
     finally:
         await state.clear()

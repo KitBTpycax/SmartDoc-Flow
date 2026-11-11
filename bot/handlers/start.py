@@ -7,7 +7,7 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "👋 Вітаю у **SmartDoc Flow**!\n\n"
-        "Надішліть мені документ (PDF, DOCX) або фотографію, щоб розпочати обробку.",
-        parse_mode="Markdown"
+        "👋 Вітаю у <b>SmartDoc Flow</b>!\n\n"
+        "Надішліть мені документ (PDF, DOCX) або фотографію (JPG, PNG), щоб розпочати обробку.",
+        parse_mode="HTML"
     )
