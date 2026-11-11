@@ -3,7 +3,22 @@ from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+def extract_text_from_docx(file_path: str) -> str:
+    """Зчитує текст із завантаженого .docx файлу"""
+    try:
+        doc = Document(file_path)
+        full_text = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                full_text.append(para.text.strip())
+        
+        text = "\n\n".join(full_text)
+        return text if text else "Документ DOCX порожній."
+    except Exception as e:
+        return f"Помилка зчитування DOCX: {e}"
+
 def create_formatted_docx(text: str, output_path: str) -> str:
+    """Генерує гарно відформатований DOCX з виділенням заголовків"""
     doc = Document()
     
     # Налаштування полів сторінки

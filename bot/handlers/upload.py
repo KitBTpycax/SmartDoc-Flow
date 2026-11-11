@@ -1,32 +1,96 @@
 import os
-import uuid
+from html import escape
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from config import TEMP_DIR
-from bot.keyboards.inline import get_file_action_kb
+from bot.database.engine import async_session
+from bot.database.models import User, UploadedFile
+from bot.keyboards.inline import get_action_keyboard
+from bot.processors.pdf_service import extract_text_from_pdf
+from bot.processors.ocr_service import perform_ocr
+from bot.workers.task_queue import run_in_queue
+from bot.processors.docx_service import extract_text_from_docx
 
 router = Router()
+ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.jpg', '.jpeg', '.png')
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ ліміт Telegram Bot API
 
 @router.message(F.document | F.photo)
 async def handle_file_upload(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    username = message.from_user.username
+
+    # 1. Перевірка розміру та отримання id файлу
     if message.document:
+        if message.document.file_size > MAX_FILE_SIZE:
+            await message.answer("❌ Файл занадто великий. Максимальний розмір — 20 МБ.")
+            return
         file_id = message.document.file_id
-        display_name = message.document.file_name or "document.pdf"
-        ext = os.path.splitext(display_name)[1] or ".pdf"
+        file_name = message.document.file_name or "document.pdf"
     else:
         file_id = message.photo[-1].file_id
-        display_name = f"photo_{message.photo[-1].file_unique_id}.jpg"
-        ext = ".jpg"
+        file_name = f"photo_{file_id[:8]}.jpg"
 
-    # Генерація безпечного імені файлу для ОС Windows та httpx
-    safe_filename = f"file_{uuid.uuid4().hex[:8]}{ext}"
-    local_path = os.path.join(TEMP_DIR, safe_filename)
+    file_ext = os.path.splitext(file_name)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        await message.answer("❌ Непідтримуваний формат файлу. Надішліть PDF або зображення (JPG/PNG).")
+        return
 
-    file = await bot.get_file(file_id)
-    await bot.download_file(file.file_path, local_path)
+    msg = await message.answer("⏳ Завантажую та попередньо обробляю файл...")
 
-    await message.answer(
-        f"📥 Файл `{display_name}` успішно завантажено!\nОберіть потрібну дію нижче:",
-        reply_markup=get_file_action_kb(),
-        parse_mode="Markdown"
-    )
+    # 2. Створення персональної директорії
+    user_dir = os.path.join(TEMP_DIR, str(user_id))
+    os.makedirs(user_dir, exist_ok=True)
+    local_path = os.path.join(user_dir, file_name)
+
+    # 3. Скачування
+    file_info = await bot.get_file(file_id)
+    await bot.download_file(file_info.file_path, local_path)
+
+    # 4. Початкова екстракція тексту (1 раз!)
+    try:
+        if file_ext == ".pdf":
+            extracted_text = await run_in_queue(extract_text_from_pdf, local_path)
+        elif file_ext == ".docx":
+            extracted_text = await run_in_queue(extract_text_from_docx, local_path)    
+        else:
+            extracted_text = await run_in_queue(perform_ocr, local_path)
+    except Exception as e:
+        extracted_text = f"Помилка розпізнавання: {e}"
+
+    # 5. Запис у базу даних
+    async with async_session() as session:
+        # Реєстрація або оновлення користувача
+        db_user = await session.get(User, user_id)
+        if not db_user:
+            db_user = User(id=user_id, username=username)
+            session.add(db_user)
+        else:
+            db_user.username = username
+        
+        # Додавання файлу
+        db_file = UploadedFile(
+            user_id=user_id,
+            file_name=file_name,
+            file_path=local_path,
+            file_type=file_ext.replace('.', ''),
+            extracted_text=extracted_text
+        )
+        session.add(db_file)
+        await session.commit()
+        await session.refresh(db_file)
+
+        # Видаляємо оригінальний завантажений файл з диска, адже текст уже збережено в БД
+        if os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except OSError:
+                pass
+
+        safe_name = escape(file_name)
+        await msg.edit_text(
+            f"📥 Файл <b>{safe_name}</b> успішно завантажено та опрацьовано!\n"
+            f"Оберіть потрібну дію нижче:",
+            reply_markup=get_action_keyboard(db_file.id),
+            parse_mode="HTML"
+        )

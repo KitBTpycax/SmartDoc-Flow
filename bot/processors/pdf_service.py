@@ -1,28 +1,40 @@
-from pypdf import PdfReader, PdfWriter
+import io
+import pymupdf as fitz
+from pypdf import PdfReader
+import pytesseract
+from PIL import Image
+from config import TESSERACT_CMD
+
+pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 def extract_text_from_pdf(pdf_path: str) -> str:
-    reader = PdfReader(pdf_path)
-    text = []
-    for idx, page in enumerate(reader.pages, start=1):
-        content = page.extract_text() or ""
-        text.append(f"--- Сторінка {idx} ---\n{content}")
-    return "\n\n".join(text)
+    # 1. Спроба текстової екстракції через pypdf
+    extracted_text = []
+    try:
+        reader = PdfReader(pdf_path)
+        for idx, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+            if text.strip():
+                extracted_text.append(f"--- Сторінка {idx} ---\n{text.strip()}")
+    except Exception:
+        pass
 
-def merge_pdfs(pdf_paths: list[str], output_path: str) -> str:
-    writer = PdfWriter()
-    for path in pdf_paths:
-        reader = PdfReader(path)
-        for page in reader.pages:
-            writer.add_page(page)
-    with open(output_path, "wb") as f_out:
-        writer.write(f_out)
-    return output_path
+    full_text = "\n\n".join(extracted_text)
 
-def split_pdf(pdf_path: str, start_page: int, end_page: int, output_path: str) -> str:
-    reader = PdfReader(pdf_path)
-    writer = PdfWriter()
-    for idx in range(start_page - 1, min(end_page, len(reader.pages))):
-        writer.add_page(reader.pages[idx])
-    with open(output_path, "wb") as f_out:
-        writer.write(f_out)
-    return output_path
+    # 2. Якщо текст розпізнано і його довжина достатня — повертаємо результат
+    if len(full_text.strip()) >= 50:
+        return full_text
+
+    # 3. Fallback: Якщо це скан-PDF (тексту немає або мало), проганяємо сторінки через OCR
+    ocr_text = []
+    with fitz.open(pdf_path) as doc:
+        for idx, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(dpi=150)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            
+            # Обробка Tesseract
+            page_text = pytesseract.image_to_string(img, lang="ukr+eng").strip()
+            if page_text:
+                ocr_text.append(f"--- Сторінка {idx} ---\n{page_text}")
+    
+    return "\n\n".join(ocr_text) if ocr_text else "Не вдалося витягти текст із PDF-документа."
